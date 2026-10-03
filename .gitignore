@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.*
+!.env.example
+.webcore/
+config.json
+language-state/
+*.local.json
+.DS_Store

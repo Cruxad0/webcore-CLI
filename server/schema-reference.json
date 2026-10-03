@@ -1,0 +1,112 @@
+{
+  "reference_versions": {
+    "webcore_version": "v0.3.114.20220203",
+    "webcore_he_version": "v0.3.114.20240115_HE",
+    "displayed_date": "September 19, 2025",
+    "provenance": "User-provided dashboard screenshot; reference source from the same date. These are reference values, not a live connection report."
+  },
+  "source_revision": "49e94d948dd71dc63593bb37ef601bc1f70c8428",
+  "documentation": "skills/webcore-automation/references/hubitat-condition-format.md",
+  "format": "native compact webCoRE JSON",
+  "condition_fields": {
+    "t": "condition for a comparison node, including event/trigger comparisons; group for a nested group",
+    "lo": "Typed left operand",
+    "co": "Exact comparison key from live db.comparisons.conditions or db.comparisons.triggers",
+    "ro": "First typed right operand, if required by the comparison",
+    "ro2": "Second typed right operand, if required",
+    "to": "Typed duration/time-offset operand, when the comparison uses it",
+    "to2": "Second time-offset operand, when required",
+    "sm": "Subscription method; preserve the existing choice, commonly auto",
+    "ts": "Statements for a true condition result",
+    "fs": "Statements for a false condition result",
+    "z": "Description/comment"
+  },
+  "group_shape": {
+    "t": "group",
+    "o": "and",
+    "n": false,
+    "c": []
+  },
+  "if_shape": {
+    "t": "if",
+    "o": "and",
+    "n": false,
+    "c": [],
+    "s": [],
+    "e": []
+  },
+  "operand_examples": {
+    "device_attribute": {
+      "t": "p",
+      "d": [
+        "WEB_CORE_AUTHORIZED_DEVICE_ID"
+      ],
+      "a": "switch",
+      "g": "any"
+    },
+    "string_constant": {
+      "t": "c",
+      "vt": "string",
+      "c": "on"
+    },
+    "numeric_constant": {
+      "t": "c",
+      "vt": "decimal",
+      "c": 10
+    },
+    "variable": {
+      "t": "x",
+      "x": "running"
+    },
+    "duration_minutes": {
+      "t": "c",
+      "vt": "m",
+      "c": 5
+    }
+  },
+  "condition_example": {
+    "t": "condition",
+    "lo": {
+      "t": "p",
+      "d": [
+        "WEB_CORE_AUTHORIZED_DEVICE_ID"
+      ],
+      "a": "switch",
+      "g": "any"
+    },
+    "co": "is",
+    "ro": {
+      "t": "c",
+      "vt": "string",
+      "c": "on"
+    },
+    "sm": "auto",
+    "ts": [],
+    "fs": []
+  },
+  "comparison_examples": {
+    "is": "Current state/value check",
+    "changes_to": "Event/change comparison; keep node t=condition",
+    "stays": "Timed trigger; supply the required right operand and to duration",
+    "is_greater_than": "Numeric state comparison; do not substitute invented gt or comparison keys"
+  },
+  "engine_fields": {
+    "$": "Generated node ID",
+    "ct": "Engine-derived condition/trigger classification",
+    "s": "Engine subscription marker when present on a condition",
+    "w": "Engine warnings"
+  },
+  "usage": [
+    "Call webcore_status before editing conditions and use its live webcore_version and webcore_he_version; plugin_version identifies this plugin, not webCoRE.",
+    "Inspect live inventory, language DB comparison definitions and an existing piston. Missing or different live versions require inspecting that hub's format before using this reference.",
+    "Comparison p and t metadata determine right-operand and duration requirements; examples are fragments, not ready-to-apply pistons.",
+    "Replace the device placeholder with an authorized ID, check attribute types and allowed values, and preserve existing subscription/grouping/timing policies.",
+    "Never invent a t=trigger node, descriptive condition wrapper fields, or engine-generated classifications. Keep the native body format and existing prepare/apply/read-back safeguards.",
+    "Inspect language_compatibility from lookup, preparation and apply. A first observation or matching versions/hash does not verify this pinned format. Review live native conditions and current definitions when reference_requires_review is true, including changes with unchanged HE labels or unavailable tracking. Pending warnings persist for this source revision; the guide is never rewritten automatically."
+  ],
+  "sources": [
+    "https://github.com/imnotbob/webCoRE/blob/49e94d948dd71dc63593bb37ef601bc1f70c8428/dashboard/js/modules/piston.module.js",
+    "https://github.com/imnotbob/webCoRE/blob/49e94d948dd71dc63593bb37ef601bc1f70c8428/smartapps/ady624/webcore.src/webcore.groovy",
+    "https://github.com/imnotbob/webCoRE/blob/49e94d948dd71dc63593bb37ef601bc1f70c8428/smartapps/ady624/webcore-piston.src/webcore-piston.groovy"
+  ]
+}
