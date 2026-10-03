@@ -104,7 +104,7 @@ test('CLI and MCP prepare nested drafts and apply through bounded chunk URLs usi
   assert.equal(preparedCli.ok, true);
   assert.equal(preparedCli.language_compatibility.observation_status, 'first_observation');
   assert.equal(preparedCli.language_compatibility.compatibility_verified, false);
-  const appliedCli = await execute(process.execPath, [cli, 'apply', 'pid', file, '--expected-hash', preparedCli.expected_remote_hash, '--confirm-apply', '--debug'], { env });
+  const appliedCli = await execute(process.execPath, [cli, 'apply', 'pid', file, '--expected-hash', preparedCli.expected_remote_hash, '--expected-body-hash', preparedCli.proposed_body_hash, '--expected-proposed-hash', preparedCli.proposed_hash, '--confirm-apply', '--debug'], { env });
   const savedCli = JSON.parse(appliedCli.stdout);
   assert.equal(savedCli.applied, true);
   assert.equal(savedCli.result.status, 'ST_SUCCESS');
@@ -113,6 +113,11 @@ test('CLI and MCP prepare nested drafts and apply through bounded chunk URLs usi
   assert.equal(savedCli.verification.build, 27);
   assert.equal(savedCli.language_compatibility.observation_status, 'unchanged');
   assert.equal(savedCli.language_compatibility.live.language_hash, preparedCli.language_compatibility.live.language_hash);
+  const verifiedCli = JSON.parse((await execute(process.execPath, [cli, 'verify', 'pid', file, '--expected-name', 'Dryer Notification', '--expected-body-hash', preparedCli.proposed_body_hash], { env })).stdout);
+  assert.equal(verifiedCli.persistence_verified, true);
+  assert.equal(verifiedCli.device_execution_verified, false);
+  assert.equal(verifiedCli.applied, undefined);
+  assert.equal(commits, 1);
   assert.deepEqual(current.piston, draft.piston);
   assert.deepEqual(uploadedBodies[0], draft.piston);
   assert.match(appliedCli.stderr, /upload path=.*set.chunk/);
@@ -124,18 +129,30 @@ test('CLI and MCP prepare nested drafts and apply through bounded chunk URLs usi
   const lookupMcp = (await call('webcore_lookup_language', {})).structuredContent;
   assert.equal(lookupMcp.condition_reference.reference_status, 'unverified');
   assert.equal(lookupMcp.language_compatibility.live.language_hash, preparedMcp.language_compatibility.live.language_hash);
-  const savedMcp = await call('webcore_apply_piston_update', { id: 'pid', proposed: draft, expected_remote_hash: preparedMcp.expected_remote_hash });
+  const savedMcp = await call('webcore_apply_piston_update', { id: 'pid', proposed: draft, expected_remote_hash: preparedMcp.expected_remote_hash, expected_body_hash: preparedMcp.proposed_body_hash, expected_proposed_hash: preparedMcp.proposed_hash });
   assert.equal(savedMcp.isError, false);
   assert.equal(savedMcp.structuredContent.result.status, 'ST_SUCCESS');
   assert.equal(savedMcp.structuredContent.result.upload.mode, 'chunked');
   assert.equal(savedMcp.structuredContent.verified, true);
   assert.equal(savedMcp.structuredContent.verification.build, 27);
   assert.equal(savedMcp.structuredContent.language_compatibility.observation_status, 'unchanged');
+  const verifiedMcp = await call('webcore_verify_piston_update', { id: 'pid', expected_name: 'Dryer Notification', expected_body_hash: preparedMcp.proposed_body_hash });
+  assert.equal(verifiedMcp.isError, false);
+  assert.equal(verifiedMcp.structuredContent.persistence_verified, true);
+  assert.equal(verifiedMcp.structuredContent.device_execution_verified, false);
+  assert.equal(verifiedMcp.structuredContent.applied, undefined);
   assert.deepEqual(current.piston, draft.piston);
   assert.deepEqual(uploadedBodies[1], draft.piston);
   assert.equal(commits, 2);
   assert.equal(oversized, 0);
   assert.equal(JSON.stringify(savedMcp).includes('secret'), false);
+
+  const editedDraft = structuredClone(draft);
+  editedDraft.piston.z += 'changed after preparation';
+  const editedPreparation = (await call('webcore_prepare_piston_update', { id: 'pid', proposed: draft })).structuredContent;
+  const guarded = await call('webcore_apply_piston_update', { id: 'pid', proposed: editedDraft, expected_remote_hash: editedPreparation.expected_remote_hash, expected_body_hash: editedPreparation.proposed_body_hash, expected_proposed_hash: editedPreparation.proposed_hash });
+  assert.equal(guarded.structuredContent.error.code, 'DRAFT_HASH_MISMATCH');
+  assert.equal(commits, 2);
 
   const invalid = structuredClone(draft);
   invalid.piston.s[0].tasks[0].command = 'turnBlue';

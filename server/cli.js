@@ -4,9 +4,10 @@ import { createInterface } from 'node:readline/promises';
 import { readFile } from 'node:fs/promises';
 import { parseEndpoint, WebcoreClient } from './client.js';
 import { loadConfig, saveConfig, removeConfig, configPath } from './config.js';
-import { prepareUpdate } from './piston.js';
+import { hashJson, normalizePistonDraft, pistonBodyFingerprint, prepareUpdate } from './piston.js';
 import { runDiagnostics } from './diagnostics.js';
 import { applyPistonUpdate } from './update.js';
+import { verifyPistonUpdate } from './verification.js';
 import packageInfo from '../package.json' with { type: 'json' };
 
 const [cmd, ...args] = process.argv.slice(2);
@@ -118,12 +119,20 @@ try {
     const id = args[0], path = args[1], expected = flag('--expected-hash');
     if (!id || !path || !expected || !args.includes('--confirm-apply')) throw new Error('Usage: apply <piston-id> <proposed.json> --expected-hash <hash> --confirm-apply after reviewing the prepared diff.');
     const c = await client(); const proposed = JSON.parse(await readFile(path, 'utf8'));
-    print(await applyPistonUpdate(c, id, proposed, expected));
+    print(await applyPistonUpdate(c, id, proposed, expected, { expectedBodyHash: flag('--expected-body-hash'), expectedProposedHash: flag('--expected-proposed-hash') }));
+  } else if (cmd === 'verify') {
+    const id = args[0], path = args[1] && !args[1].startsWith('--') ? args[1] : undefined;
+    const expectedName = flag('--expected-name');
+    if (!id || !expectedName || !path && !flag('--expected-body-hash')) throw new Error('Usage: verify <piston-id> [original-proposed.json] --expected-name <name> [--expected-body-hash <proposed_body_hash from prepare>]. This only reads the stored definition.');
+    const c = await client();
+    const body = path ? normalizePistonDraft(id, JSON.parse(await readFile(path, 'utf8'))).body : undefined;
+    const expectedHash = flag('--expected-body-hash') ?? hashJson(pistonBodyFingerprint(body));
+    print(await verifyPistonUpdate(c, { id, expected_name: expectedName, expected_body_hash: expectedHash }, { expectedBody: body }));
   } else if (cmd === 'test') {
     if (!args[0] || !args.includes('--authorize-live-test')) throw new Error('A live test can run devices; pass --authorize-live-test only after reviewing the piston and authorizing this test.');
     const c = await client(); print(await c.testPiston(args[0]));
   } else {
-    stdout.write('webCoRE CLI\nCommands: setup [--debug], login [--from-url <URL>] [--pin <dashboard password>] [--allow-cloud], logout, status, diagnose, language, devices, pistons, pull <id>, prepare <id> <file>, apply <id> <file> --expected-hash <hash> --confirm-apply, activity <id>, create <name> --confirm-create, test <id> --authorize-live-test\n');
+    stdout.write('webCoRE CLI\nCommands: setup [--debug], login [--from-url <URL>] [--pin <dashboard password>] [--allow-cloud], logout, status, diagnose, language, devices, pistons, pull <id>, prepare <id> <file>, apply <id> <file> --expected-hash <remote-hash> [--expected-body-hash <prepared-body-hash>] [--expected-proposed-hash <prepared-upload-hash>] --confirm-apply, verify <id> [original-proposed.json] --expected-name <name> [--expected-body-hash <prepared-body-hash>], activity <id>, create <name> --confirm-create, test <id> --authorize-live-test\n');
   }
 } catch (error) {
   if (debugEnabled && (cmd === 'setup' || cmd === 'login')) debug(`setup failed during ${setupPhase}; error code=${error.code ?? 'CLI_ERROR'}; error details may be shared without credentials`);

@@ -32,6 +32,8 @@ Use compact JSON keys throughout the existing body: `s` statements, `v` variable
 
 The engine derives fields such as `$` IDs, `ct` classification, condition `s` subscription markers and `w` warnings. Do not invent these fields to force trigger behavior. Their meaning depends on their location; root/statement `s` is a statement array.
 
+Body fingerprint version 2 ignores supported derived `ct`/`s` annotations and generated warning arrays only in recognized native logic positions, including HE's switch scalar annotations. It preserves actual statement arrays, operand/literal objects, commands, subscription methods, timing and task policies. Preparation reports `body_fingerprint_version`; keep the original intended body hash with that version when applying or using read-only verification. Storage verification does not establish that lamps/devices were tested.
+
 ## Example: switch is on
 
 Replace the placeholder with a webCoRE-authorized device that actually has the `switch` attribute and the `on` value:

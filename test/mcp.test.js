@@ -25,6 +25,9 @@ test('stdio MCP exposes list scopes, guarded selection, and diagnostics', async 
   assert.deepEqual(select.inputSchema.required, ['list_id', 'number', 'expected_name']);
   const get = response.result.tools.find(item => item.name === 'webcore_get_piston');
   assert.deepEqual(get.inputSchema.required, ['id', 'expected_name']);
+  const verify = response.result.tools.find(item => item.name === 'webcore_verify_piston_update');
+  assert.deepEqual(verify.inputSchema.required, ['id', 'expected_name', 'expected_body_hash']);
+  assert.match(verify.description, /Read-only/);
   assert.ok(diagnostics);
   assert.match(diagnostics.description, /read-only/);
   assert.match(diagnostics.description, /without endpoint URLs, access tokens/);

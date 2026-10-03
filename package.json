@@ -1,12 +1,12 @@
 {
   "name": "webcore-cli",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server/index.js",
     "test": "node --test",
-    "check": "node --check server/index.js && node --check server/client.js && node --check server/piston.js && node --check server/diagnostics.js && node --check server/selection.js && node --check server/update.js && node --check server/cli.js && node --check server/language.js"
+    "check": "node --check server/index.js && node --check server/client.js && node --check server/piston.js && node --check server/diagnostics.js && node --check server/selection.js && node --check server/update.js && node --check server/cli.js && node --check server/language.js && node --check server/verification.js"
   },
   "engines": {
     "node": ">=24"

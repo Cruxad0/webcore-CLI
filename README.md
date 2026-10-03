@@ -1,5 +1,7 @@
 # webCoRE CLI
 
+**Download the latest release:** [Cruxad0/webcore-CLI — latest release](https://github.com/Cruxad0/webcore-CLI/releases/latest). Under **Assets**, download `webcore-cli-vX.Y.Z.zip` for the latest version and the optional `SHA256SUMS` file. The GitHub **Source code** archives are repository snapshots; the versioned plugin ZIP is the installation package.
+
 Use this local command-line tool and MCP plugin to inspect and maintain pistons in a Hubitat webCoRE installation. It discovers the devices webCoRE has authorized, their capabilities and state, and command argument details. It can pull, validate, compare, and update pistons, and retrieve activity logs.
 
 This package is for Hubitat-hosted webCoRE. It does not connect to standalone webCoRE. A local Hubitat endpoint is preferred. Hubitat Cloud is supported only as an explicitly confirmed fallback.
@@ -56,7 +58,7 @@ The Node version should be 24 or newer. If the command is not found, finish the 
 
 ## Download and open the plugin folder
 
-Get the latest plugin ZIP from [GitHub Releases](https://github.com/Cruxad0/webcore-CLI/releases/latest). Versioned ZIPs and their SHA-256 checksums are also included in this repository's `releases/` folder. Download `webcore-cli-v0.4.4.zip`, then extract it into a folder named `webcore-cli` before running setup.
+Get the latest plugin ZIP from [GitHub Releases](https://github.com/Cruxad0/webcore-CLI/releases/latest). Versioned ZIPs and their SHA-256 checksums are also included in this repository's `releases/` folder. For this version, download `webcore-cli-v0.4.5.zip`, then extract it into a folder named `webcore-cli` before running setup.
 
 Download and unzip the plugin release. Open a terminal in the unzipped `webcore-cli` folder. The commands below must be run from that folder, which contains `server/cli.js`. For example, if it is in Downloads:
 
@@ -169,7 +171,8 @@ Confirm the computer and hub are on the same LAN or connected through a VPN that
 node server/cli.js pull PISTON_ID
 node server/cli.js activity PISTON_ID
 node server/cli.js prepare PISTON_ID proposed.json
-node server/cli.js apply PISTON_ID proposed.json --expected-hash HASH_FROM_PREPARE --confirm-apply
+node server/cli.js apply PISTON_ID proposed.json --expected-hash REMOTE_HASH_FROM_PREPARE --expected-body-hash PROPOSED_BODY_HASH_FROM_PREPARE --expected-proposed-hash PROPOSED_HASH_FROM_PREPARE --confirm-apply
+node server/cli.js verify PISTON_ID proposed.json --expected-name 'Exact piston name'
 node server/cli.js test PISTON_ID --authorize-live-test
 node server/cli.js create 'New Piston' --confirm-create
 ```
@@ -182,9 +185,33 @@ CLI and MCP applies use the same validator and upload helper. A small payload us
 
 Prepare/apply accept either the native compact body, a `{ "meta": ..., "piston": ... }` wrapper, or the full pull response containing `data.piston`. The plugin extracts and uploads **only the body**, preserving webCoRE's native `s` statements, `v` variable declarations, `r` restrictions, `o` options, `rn`, `rop`, and `z` description. An optional native `n` requests a rename. Wrapper metadata, logs, traces, and current variable values are not uploaded. Use the body returned by webCoRE; descriptive replacements such as `statements` or `variables` are refused. A body must explicitly contain an `s` array, so an empty object or metadata-only draft cannot clear the logic silently. Preparation returns the exact body diff, `proposed_body_hash`, and section/variable counts.
 
-`ST_SUCCESS` confirms that Hubitat accepted a request; it is insufficient to prove that the intended logic was stored. Apply always reads the saved piston again, verifies its ID/name, and compares its normalized body hash with the prepared body. The comparison accounts for root defaults and regenerated `$` node IDs; statements, operands, variables, restrictions, options, and comments must match. Other unexpected changes fail verification instead of being silently ignored.
+`ST_SUCCESS` confirms that Hubitat accepted a request; it is insufficient to prove that the intended logic was stored. Apply reads the saved piston again, verifies its ID/name, and compares its normalized body hash with the prepared body. Fingerprint version **2** accounts for root defaults and regenerated `$` node IDs, plus upstream-documented classifications (`ct`), subscription markers (`s`), and warning arrays (`w`) only in recognized native logic positions and supported metadata forms. Actual statement arrays, commands, conditions, operands, literal objects, subscription methods, task policies, variables, restrictions, options and comments must match. Other unexpected changes fail verification instead of being silently ignored.
 
 Only a matching read-back returns `applied: true` and `verified: true`. Use `verification.build`, `verification.active`, and `verification.body_summary` when describing the result; these come from the fresh read, rather than the upload acknowledgement. Unsupported build/active metadata is reported as `null`.
+
+### Read-back recovery (v0.4.5)
+
+An accepted upload is verified with up to three **read-only** checks: one immediately, then after 250 ms and 750 ms. This accommodates transient read failures or a first response that still contains the previous body. The upload is never repeated by these checks. A different piston identity stops immediately. Success requires the intended normalized body hash and exact identity; matching section/variable counts alone is insufficient.
+
+Results and errors include `readback_attempt_count` and sanitized `readback_attempts` with codes, hashes and counts. Persistent apply mismatches include `differing_paths` (at most 32 structural paths; values are omitted and unknown field names are redacted). This helps distinguish an actual command/operand/option change from a read timing problem. Errors preserve `accepted: true`, `applied: false`, `verified: false`, and `retry_safe: false` until the intended definition is verified.
+
+Keep the original approved draft and preparation output. Pass its `proposed_body_hash` as `--expected-body-hash` and `proposed_hash` as `--expected-proposed-hash` when applying. The body hash binds stored logic; the full payload hash also binds a requested rename and the exact approved upload fields. A changed payload produces `DRAFT_HASH_MISMATCH` before any upload. These flags are optional for compatibility with existing CLI scripts; plugin instructions tell ChatGPT to supply both. Preparation and verification report `body_fingerprint_version: 2`. Hashes from version 1 cannot be reused as version 2 hashes: review/re-prepare the original draft with the updated plugin, or use the original unmodified draft file in read-only verification.
+
+If a later read may resolve an accepted but unverified upload, use the **original intended draft** to check it without saving again:
+
+```sh
+node server/cli.js verify PISTON_ID original-proposed.json --expected-name 'Exact piston name' --debug
+```
+
+Or provide the `proposed_body_hash` retained from the approved preparation with the same fingerprint version:
+
+```sh
+node server/cli.js verify PISTON_ID --expected-name 'Exact piston name' --expected-body-hash ORIGINAL_PROPOSED_BODY_HASH
+```
+
+The MCP equivalent is `webcore_verify_piston_update` with `id`, `expected_name`, and `expected_body_hash`. Do not use `stored_body_hash` from a failed read as the expected hash, or pull the current body and prepare that as evidence of the original draft. Those comparisons only show that the current stored definition matches itself.
+
+Read-only verify returns `verified: true` and `persistence_verified: true` only when the intended stored definition matches. It does not claim to have performed an upload. Apply and verify explicitly return `device_execution_verified: false`: verifying saved code does not prove that lamps or other devices worked. Live testing remains a separate, explicitly authorized operation.
 
 An accepted write that stores different or empty logic returns `PISTON_READBACK_MISMATCH`. A failed read returns `PISTON_READBACK_FAILED`; a malformed body or wrong identity returns `PISTON_READBACK_INVALID`. These errors mark `accepted: true`, `applied: false`, `verified: false`, and `retry_safe: false`. The live piston may already have changed. The plugin does not repeat the write or automatically restore an older body: inspect the stored definition and prepare a new, reviewable change. Error details contain hashes, counts, and request traces, rather than piston content or credentials.
 
