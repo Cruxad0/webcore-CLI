@@ -147,9 +147,117 @@ const collectIds = (value, out = new Set()) => {
   return out;
 };
 
+// HE evaluates c/e operands from their parsed exp tree. Display text is not an
+// executable expression. Inspect only operand positions, never literal JSON v.
+const expressionValueTypes = new Set(['integer', 'long', 'decimal', 'int32', 'int64', 'number', 'float', 'double',
+  'boolean', 'bool', 'dynamic', 'string', 'enum', 'phone', 'uri', 'text', 'datetime', 'time', 'date', 'duration', 'operand']);
+const directConstantTypes = new Set(['time', 'date', 'datetime']);
+
+function validateExpressionTree(node, path, errors, depth = 0, allowOperator = false) {
+  if (depth > 64) { errors.push(`${path}: expression nesting exceeds the supported validation depth.`); return; }
+  if (!isObject(node) || typeof node.t !== 'string' || !node.t) {
+    errors.push(`${path}: parsed expression must be an object with a native type.`);
+    return;
+  }
+  if (node.err || node.ok === false || node.t === 'error') errors.push(`${path}: parsed expression contains an error; correct it in the webCoRE editor before preparing.`);
+  if (node.t === 'expression' || node.t === 'function') {
+    if (node.t === 'function' && (typeof node.n !== 'string' || !node.n.trim())) errors.push(`${path}: expression function requires a name.`);
+    const items = node.i;
+    // HE's parser emits i: [] for empty text. Preserve that native form and
+    // zero-argument functions; neither is a missing exp tree.
+    if (node.t === 'function' && items === undefined) return;
+    if (!Array.isArray(items)) { errors.push(`${path}.i: expression items must be an array.`); return; }
+    items.forEach((item, index) => validateExpressionTree(item, `${path}.i[${index}]`, errors, depth + 1, node.t === 'expression'));
+  } else if (node.t === 'operator') {
+    if (!allowOperator) errors.push(`${path}: expression operator must be inside an expression item list.`);
+    if (typeof node.o !== 'string' || !node.o.trim()) errors.push(`${path}: expression operator requires its native o field.`);
+  } else if (node.t === 'variable') {
+    if (typeof node.x !== 'string' || !node.x.trim()) errors.push(`${path}: expression variable requires its native x field.`);
+  } else if (node.t === 'device') {
+    const ids = typeof node.id === 'string' ? [node.id] : node.id;
+    const hasIds = Array.isArray(ids) && ids.length > 0 && ids.every(id => typeof id === 'string' && id.trim());
+    const hasVariable = typeof node.x === 'string' && node.x.trim();
+    const alreadyParsed = Array.isArray(node.v);
+    if (!hasIds && !hasVariable && !alreadyParsed) errors.push(`${path}: expression device requires a device reference or device variable.`);
+  } else if (expressionValueTypes.has(node.t)) {
+    if (!Object.hasOwn(node, 'v')) errors.push(`${path}: expression value requires its native v field.`);
+  } else if (node.t !== 'error') {
+    errors.push(`${path}: unsupported parsed expression type; use the native expression returned by the connected webCoRE editor.`);
+  }
+}
+
+function validateOperandExpression(operand, path, errors) {
+  if (!isObject(operand) || !['c', 'e'].includes(operand.t)) return;
+  if (operand.t === 'c' && directConstantTypes.has(operand.vt)) {
+    if (!Object.hasOwn(operand, 'c')) errors.push(`${path}.c: time/date constant requires its value.`);
+    return;
+  }
+  if (!isObject(operand.exp) || !Object.keys(operand.exp).length) {
+    errors.push(`${path}.exp: native constant/expression operand requires a nonempty parsed exp tree; c/e text alone can cause Null expression on Hubitat.`);
+    return;
+  }
+  validateExpressionTree(operand.exp, `${path}.exp`, errors);
+}
+
+function validateNativeOperandPositions(body, errors) {
+  const operandFields = ['lo', 'ro', 'ro2', 'to', 'to2', 'wd'];
+  const operands = (node, path) => {
+    for (const key of operandFields) if (Object.hasOwn(node, key)) validateOperandExpression(node[key], `${path}.${key}`, errors);
+  };
+  const statements = (nodes, path) => {
+    if (!Array.isArray(nodes)) return;
+    nodes.forEach((node, index) => {
+      if (!isObject(node) || !statementTypes.has(node.t)) return;
+      const here = `${path}[${index}]`;
+      operands(node, here);
+      comparisons(node.r, `${here}.r`);
+      statements(node.s, `${here}.s`);
+      statements(node.e, `${here}.e`);
+      if (conditionalStatementTypes.has(node.t)) comparisons(node.c, `${here}.c`);
+      if (node.t === 'action' && Array.isArray(node.k)) {
+        node.k.forEach((task, taskIndex) => {
+          if (!isObject(task)) return;
+          if (task.p !== undefined && !Array.isArray(task.p)) errors.push(`${here}.k[${taskIndex}].p: native command parameters must be an array.`);
+          if (Array.isArray(task.p)) task.p.forEach((parameter, parameterIndex) => validateOperandExpression(parameter, `${here}.k[${taskIndex}].p[${parameterIndex}]`, errors));
+        });
+      }
+      if (node.t === 'if' && Array.isArray(node.ei)) node.ei.forEach((branch, branchIndex) => {
+        if (!isObject(branch)) return;
+        comparisons(branch.c, `${here}.ei[${branchIndex}].c`);
+        statements(branch.s, `${here}.ei[${branchIndex}].s`);
+      });
+      if (node.t === 'switch' && Array.isArray(node.cs)) node.cs.forEach((branch, branchIndex) => {
+        if (!isObject(branch)) return;
+        operands(branch, `${here}.cs[${branchIndex}]`);
+        statements(branch.s, `${here}.cs[${branchIndex}].s`);
+      });
+    });
+  };
+  const comparisons = (nodes, path) => {
+    if (!Array.isArray(nodes)) return;
+    nodes.forEach((node, index) => {
+      if (!isObject(node) || (!comparisonTypes.has(node.t) && node.t !== 'group')) return;
+      const here = `${path}[${index}]`;
+      operands(node, here);
+      if (node.t === 'group') {
+        comparisons(node.c, `${here}.c`);
+        comparisons(node.r, `${here}.r`);
+      }
+      statements(node.ts, `${here}.ts`);
+      statements(node.fs, `${here}.fs`);
+    });
+  };
+  statements(body.s, '$.s');
+  comparisons(body.r, '$.r');
+  if (Array.isArray(body.v)) body.v.forEach((variable, index) => {
+    if (isObject(variable)) validateOperandExpression(variable.v, `$.v[${index}].v`, errors);
+  });
+}
+
 export function validatePiston(piston, inventory, db = {}) {
   const errors = [];
   if (!piston || typeof piston !== 'object' || Array.isArray(piston)) return ['Piston must be a JSON object.'];
+  validateNativeOperandPositions(piston, errors);
   const devices = inventory?.devices ?? inventory ?? {};
   const known = new Set(Object.keys(devices).map(String));
   for (const id of collectIds(piston)) if (!known.has(id)) errors.push(`Unknown webCoRE-authorized device ID: ${id}`);
@@ -199,6 +307,8 @@ export function validatePiston(piston, inventory, db = {}) {
     const commandValue = node.command ?? node.commandName;
     const commandName = typeof commandValue === 'string' ? commandValue : (commandValue && typeof commandValue === 'object' ? commandValue.n ?? commandValue.name : undefined);
     if (typeof commandName === 'string') {
+      const suppliedOperands = node.arguments ?? node.args ?? node.parameters ?? commandValue?.arguments ?? commandValue?.args ?? commandValue?.p;
+      if (Array.isArray(suppliedOperands)) suppliedOperands.forEach((operand, index) => validateOperandExpression(operand, `${path}.arguments[${index}]`, errors));
       for (const id of refs.filter(d => known.has(d))) {
         const cmds = deviceCommands(id);
         if (cmds.size && !cmds.has(commandName)) errors.push(`${path}: device ${id} does not support command ${commandName}.`);

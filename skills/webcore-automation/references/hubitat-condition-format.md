@@ -43,20 +43,45 @@ Replace the placeholder with a webCoRE-authorized device that actually has the `
   "t": "condition",
   "lo": { "t": "p", "d": ["WEB_CORE_AUTHORIZED_DEVICE_ID"], "a": "switch", "g": "any" },
   "co": "is",
-  "ro": { "t": "c", "vt": "string", "c": "on" },
+  "ro": {
+    "t": "c", "vt": "string", "c": "on",
+    "exp": { "t": "expression", "i": [{ "t": "string", "v": "on" }] }
+  },
   "sm": "auto",
   "ts": [],
   "fs": []
 }
 ```
 
-`lo.t: "p"` selects a physical attribute, `d` identifies devices, and `a` identifies the attribute. Constants use `t: "c"`, `vt` for the type and `c` for the value. A variable operand uses `t: "x"` and `x` for its name. Numeric constants use numeric values and the type required by the live attribute/comparison.
+`lo.t: "p"` selects a physical attribute, `d` identifies devices, and `a` identifies the attribute. Constants use `t: "c"` and `vt` for the type; most require a parsed `exp` tree as well as their editable `c` value. A variable operand uses `t: "x"` and `x` for its name. Numeric constants use numeric values and the type required by the live attribute/comparison.
 
-For a change event, use the live `changes_to` comparison identifier while retaining `t: "condition"`. For the live `stays` timed trigger, supply its right operand and a duration such as `"to": { "t": "c", "vt": "m", "c": 5 }`. State checks and event comparisons have different behavior even though the node shape is shared.
+For a change event, use the live `changes_to` comparison identifier while retaining `t: "condition"`. For the live `stays` timed trigger, supply its right operand and a duration such as `"to": { "t": "c", "vt": "m", "c": 5, "exp": { "t": "expression", "i": [{ "t": "integer", "v": 5 }] } }`. State checks and event comparisons have different behavior even though the node shape is shared.
 
 Read identifiers and operand requirements from `db.comparisons.conditions` and `db.comparisons.triggers`; their `p`/`t` metadata describes right-operand/time requirements. For numeric comparisons, the baseline includes `is_greater_than`; do not invent `gt`, `comparison`, `left`, `right`, or `t: "trigger"` replacements. Preserve existing sequence/timing operands such as `wd` and `wt` when editing a followed-by group.
 
 Prepare the exact native body, review the diff, then use the guarded apply operation. Report success only after its fresh identity/body verification; this reference does not bypass those checks.
+
+## Native expression operands and notifications
+
+For this HE reference, constant (`t: "c"`) and expression (`t: "e"`) operands are normally evaluated from `exp`. The editable `c` or `e` text alone is insufficient and can cause **`Null expression`** when the piston runs. Constants with `vt: "time"`, `"date"`, or `"datetime"` use their `c` value directly. Engine-cleaned expressions may omit editable text; preserve their parsed tree.
+
+A plain notification message parameter can have this shape:
+
+```json
+{
+  "t": "c",
+  "vt": "string",
+  "c": "Example notification",
+  "exp": {
+    "t": "expression",
+    "i": [{ "t": "string", "v": "Example notification" }]
+  }
+}
+```
+
+This is one parameter fragment, not a complete action. Use the selected device's actual notification command and parameter schema. For interpolation, variables, functions, or calculated messages, copy a verified native expression from the live piston or obtain it through the webCoRE editor. Do not wrap expression text in a string leaf and assume it will execute; do not change only `c`/`e` while retaining a tree for the old message.
+
+Preparation and application check parsed expression structure in native command parameters, comparison/timing operands, and variable initializers. Missing trees, parser error markers, and malformed expression nodes are rejected with their JSON paths. A native empty-text tree with `i: []` remains valid. This expression check does not traverse literal JSON inside a parsed value as another expression tree. It does not execute expressions, fully replicate webCoRE's parser, or prove notification delivery. Live testing still requires separate authorization.
 
 ## Pinned upstream sources
 

@@ -5,7 +5,8 @@ import { hashJson, pistonBodyFingerprint, pistonFingerprint } from '../server/pi
 import { applyPistonUpdate } from '../server/update.js';
 
 function fixture(outcomes = []) {
-  const draft = { s: [{ t: 'action', d: [], k: [{ c: 'sendPushNotification', p: [{ t: 'c', vt: 'string', c: 'Intended fixture text' }] }] }], v: [] };
+  const draft = { s: [{ t: 'action', d: [], k: [{ c: 'sendPushNotification', p: [{ t: 'c', vt: 'string', c: 'Intended fixture text',
+    exp: { t: 'expression', i: [{ t: 'string', v: 'Intended fixture text' }] } }] }] }], v: [] };
   const original = { data: { meta: { id: 'pid', name: 'Fixture', build: 1, active: true }, piston: { s: [], v: [] } } };
   let current = structuredClone(original), writes = 0, tests = 0;
   const delays = [];

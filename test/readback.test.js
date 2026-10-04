@@ -5,8 +5,10 @@ import { applyPistonUpdate } from '../server/update.js';
 import { hashJson, normalizePistonDraft, pistonBodyFingerprint, pistonFingerprint, prepareUpdate } from '../server/piston.js';
 
 const body = () => ({ o: { cto: 0 }, r: [], rn: false, rop: 'and',
-  s: [{ t: 'action', d: [], k: [{ c: 'sendPushNotification', p: [{ t: 'c', vt: 'string', c: 'Fixture notification' }] }], $: 91 }],
-  v: [{ n: 'running', t: 'boolean', v: { t: 'c', vt: 'boolean', c: false } }], z: 'Dryer fixture 🔔' });
+  s: [{ t: 'action', d: [], k: [{ c: 'sendPushNotification', p: [{ t: 'c', vt: 'string', c: 'Fixture notification',
+    exp: { t: 'expression', i: [{ t: 'string', v: 'Fixture notification' }] } }] }], $: 91 }],
+  v: [{ n: 'running', t: 'boolean', v: { t: 'c', vt: 'boolean', c: false,
+    exp: { t: 'expression', i: [{ t: 'boolean', v: false }] } } }], z: 'Dryer fixture 🔔' });
 
 function fixture({ mutateStored, failReadback = false } = {}) {
   let live = { data: { meta: { id: 'pid', name: 'Dryer Notification', build: 27, active: true }, piston: { s: [], v: [] } } };

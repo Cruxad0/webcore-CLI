@@ -2,7 +2,7 @@
 
 Use ChatGPT or the terminal to list Hubitat webCoRE pistons, inspect authorized devices, read logs, and prepare reviewed automation changes.
 
-**[Download the latest release](https://github.com/Cruxad0/webcore-CLI/releases/latest).** Under **Assets**, choose the versioned plugin ZIP, such as `webcore-cli-v0.4.6.zip`. The optional `SHA256SUMS` file verifies the download. GitHub's **Source code** archives are repository snapshots.
+**[Download the latest release](https://github.com/Cruxad0/webcore-CLI/releases/latest).** Under **Assets**, choose the versioned plugin ZIP, such as `webcore-cli-v0.4.7.zip`. The optional `SHA256SUMS` file verifies the download. GitHub's **Source code** archives are repository snapshots.
 
 ## What you need
 
@@ -100,6 +100,7 @@ If an upload is accepted but unverified, ask the plugin to check it against the 
 | Setup or authentication fails | Run `node server/cli.js setup --debug`. Check the endpoint and webCoRE dashboard password. |
 | `ERR_INVALID_TOKEN` | Run setup again locally to renew the dashboard session. |
 | Missing pistons or inconsistent counts | Run `node server/cli.js diagnose`. An unavailable list is an error, not proof of zero pistons. |
+| `Null expression` or missing `exp` | Use a parsed native expression from webCoRE; see the [expression guide](skills/webcore-automation/references/hubitat-condition-format.md#native-expression-operands-and-notifications). |
 | Hub unreachable | Check the local address, network or VPN. Cloud access is an explicitly confirmed fallback. |
 | Chat cannot use the tools | Check the plugin/MCP connection. A prompt cannot grant local access by itself. |
 

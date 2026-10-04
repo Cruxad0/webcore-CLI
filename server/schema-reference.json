@@ -47,12 +47,30 @@
     "string_constant": {
       "t": "c",
       "vt": "string",
-      "c": "on"
+      "c": "on",
+      "exp": {
+        "t": "expression",
+        "i": [
+          {
+            "t": "string",
+            "v": "on"
+          }
+        ]
+      }
     },
     "numeric_constant": {
       "t": "c",
       "vt": "decimal",
-      "c": 10
+      "c": 10,
+      "exp": {
+        "t": "expression",
+        "i": [
+          {
+            "t": "decimal",
+            "v": 10
+          }
+        ]
+      }
     },
     "variable": {
       "t": "x",
@@ -61,7 +79,30 @@
     "duration_minutes": {
       "t": "c",
       "vt": "m",
-      "c": 5
+      "c": 5,
+      "exp": {
+        "t": "expression",
+        "i": [
+          {
+            "t": "integer",
+            "v": 5
+          }
+        ]
+      }
+    },
+    "notification_message": {
+      "t": "c",
+      "vt": "string",
+      "c": "Example notification",
+      "exp": {
+        "t": "expression",
+        "i": [
+          {
+            "t": "string",
+            "v": "Example notification"
+          }
+        ]
+      }
     }
   },
   "condition_example": {
@@ -78,7 +119,16 @@
     "ro": {
       "t": "c",
       "vt": "string",
-      "c": "on"
+      "c": "on",
+      "exp": {
+        "t": "expression",
+        "i": [
+          {
+            "t": "string",
+            "v": "on"
+          }
+        ]
+      }
     },
     "sm": "auto",
     "ts": [],
@@ -102,11 +152,27 @@
     "Comparison p and t metadata determine right-operand and duration requirements; examples are fragments, not ready-to-apply pistons.",
     "Replace the device placeholder with an authorized ID, check attribute types and allowed values, and preserve existing subscription/grouping/timing policies.",
     "Never invent a t=trigger node, descriptive condition wrapper fields, or engine-generated classifications. Keep the native body format and existing prepare/apply/read-back safeguards.",
-    "Inspect language_compatibility from lookup, preparation and apply. A first observation or matching versions/hash does not verify this pinned format. Review live native conditions and current definitions when reference_requires_review is true, including changes with unchanged HE labels or unavailable tracking. Pending warnings persist for this source revision; the guide is never rewritten automatically."
+    "Inspect language_compatibility from lookup, preparation and apply. A first observation or matching versions/hash does not verify this pinned format. Review live native conditions and current definitions when reference_requires_review is true, including changes with unchanged HE labels or unavailable tracking. Pending warnings persist for this source revision; the guide is never rewritten automatically.",
+    "Native c/e operands, including notification parameters, normally require exp. Direct time/date/datetime constants use c. Follow expression_operands and correct reported validation paths before upload; validation does not prove notification delivery."
   ],
   "sources": [
     "https://github.com/imnotbob/webCoRE/blob/49e94d948dd71dc63593bb37ef601bc1f70c8428/dashboard/js/modules/piston.module.js",
     "https://github.com/imnotbob/webCoRE/blob/49e94d948dd71dc63593bb37ef601bc1f70c8428/smartapps/ady624/webcore.src/webcore.groovy",
     "https://github.com/imnotbob/webCoRE/blob/49e94d948dd71dc63593bb37ef601bc1f70c8428/smartapps/ady624/webcore-piston.src/webcore-piston.groovy"
-  ]
+  ],
+  "expression_operands": {
+    "types": [
+      "c",
+      "e"
+    ],
+    "required": "Parsed exp object with native expression structure, not just editable c/e text.",
+    "direct_constant_exceptions": [
+      "time",
+      "date",
+      "datetime"
+    ],
+    "empty_text": "A native expression with i: [] is valid; it is not a missing exp tree.",
+    "validation": "Preparation and apply reject missing trees, parser errors and malformed nodes in native operand positions. This is structural validation, not expression execution or a complete parser.",
+    "editing": "Preserve verified native trees. Obtain freshly parsed metadata from the webCoRE editor for interpolated or calculated messages; do not retain an old tree after changing c/e text."
+  }
 }

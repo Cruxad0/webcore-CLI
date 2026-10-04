@@ -14,7 +14,9 @@ const execute = promisify(execFile);
 
 test('CLI and MCP prepare nested drafts and apply through bounded chunk URLs using the same validator', async t => {
   const base = { meta: { id: 'pid', name: 'Dryer Notification', build: 26, active: true }, piston: { o: {}, r: [], rn: false, rop: 'and', s: [], v: [], z: '' } };
-  const draft = { ...base, piston: { ...base.piston, s: [{ devices: ['d1'], tasks: [{ command: 'on', arguments: [] }] }], z: 'X'.repeat(6000) } };
+  const draft = { ...base, piston: { ...base.piston, s: [{ devices: ['d1'], tasks: [{ command: 'on', arguments: [] }] },
+    { t: 'action', d: ['d1'], k: [{ c: 'deviceNotification', p: [{ t: 'c', vt: 'string', c: 'Fixture notification',
+      exp: { t: 'expression', i: [{ t: 'string', v: 'Fixture notification' }] } }] }] }], z: 'X'.repeat(6000) } };
   let current = structuredClone(base);
   let staged;
   let commits = 0;
@@ -37,9 +39,12 @@ test('CLI and MCP prepare nested drafts and apply through bounded chunk URLs usi
     res.setHeader('content-type', 'application/javascript;charset=utf-8');
     if (Buffer.byteLength(req.url) > 2048) { oversized++; res.statusCode = 414; return send({}); }
     if (url.pathname.endsWith('/piston/get')) return send({ data: current });
-    if (url.pathname.endsWith('/piston/getDb')) return send({ dbVersion: 'v0.3.114.20240115_HE', db: { commands: { physical: { on: { n: 'on' } } } } });
+    if (url.pathname.endsWith('/piston/getDb')) return send({ dbVersion: 'v0.3.114.20240115_HE', db: { commands: { physical: {
+      on: { n: 'on' }, deviceNotification: { n: 'Send device notification...', p: [{ n: 'Message', t: 'string' }] }
+    } } } });
     if (url.pathname.endsWith('/dashboard/load')) return send({ instance: { coreVersion: 'v0.3.114.20220203', heVersion: 'v0.3.114.20240115_HE' } });
-    if (url.pathname.endsWith('/devices')) return send({ devices: { d1: { n: 'Lamp', c: [{ n: 'on', p: [] }], a: [{ n: 'switch' }] } }, complete: true });
+    if (url.pathname.endsWith('/devices')) return send({ devices: { d1: { n: 'Lamp', c: [{ n: 'on', p: [] },
+      { n: 'deviceNotification', p: [{ n: 'Message', t: 'string', required: true }] }], a: [{ n: 'switch' }] } }, complete: true });
     if (url.pathname.endsWith('/refresh')) return send({ d1: { switch: 'off' } });
     if (url.pathname.endsWith('/set.start')) {
       staged = Array(Number(url.searchParams.get('chunks')));
@@ -100,9 +105,44 @@ test('CLI and MCP prepare nested drafts and apply through bounded chunk URLs usi
     await rm(temp, { recursive: true, force: true });
   });
 
+  // Invalid notification expressions must be rejected through both public entry
+  // points before any set/start/chunk/end request, even with an otherwise valid hash.
+  const expectedRemote = (await call('webcore_prepare_piston_update', { id: 'pid', proposed: draft })).structuredContent.expected_remote_hash;
+  let stagingRequests = 0;
+  hub.on('request', req => { if (/\/piston\/set(?:\.|\?)/.test(req.url)) stagingRequests++; });
+  for (const exp of [undefined, null, { t: 'expression', i: [{ t: 'string', v: 'Fixture private notification', err: 'Fixture private parser detail' }] }]) {
+    const malformed = structuredClone(draft);
+    malformed.piston.s[1].k[0].p[0] = { t: 'c', vt: 'string', c: 'Fixture private notification', exp };
+    await writeFile(file, JSON.stringify(malformed));
+    await assert.rejects(execute(process.execPath, [cli, 'prepare', 'pid', file], { env }), error => {
+      assert.equal(error.code, 2);
+      const failure = JSON.parse(error.stdout);
+      assert.equal(failure.ok, false);
+      assert.match(failure.errors[0], /\$\.s\[1\]\.k\[0\]\.p\[0\]\.exp/);
+      assert.equal(JSON.stringify(failure).includes('Fixture private'), false);
+      return true;
+    });
+    const preparedBad = (await call('webcore_prepare_piston_update', { id: 'pid', proposed: malformed })).structuredContent;
+    assert.equal(preparedBad.ok, false);
+    assert.equal(JSON.stringify(preparedBad).includes('Fixture private'), false);
+    await assert.rejects(execute(process.execPath, [cli, 'apply', 'pid', file, '--expected-hash', expectedRemote, '--confirm-apply'], { env }), error => {
+      assert.equal(error.code, 1);
+      assert.equal(JSON.parse(error.stderr).code, 'VALIDATION_ERROR');
+      assert.equal(error.stderr.includes('Fixture private'), false);
+      return true;
+    });
+    const appliedBad = await call('webcore_apply_piston_update', { id: 'pid', proposed: malformed, expected_remote_hash: expectedRemote });
+    assert.equal(appliedBad.isError, true);
+    assert.equal(appliedBad.structuredContent.error.code, 'VALIDATION_ERROR');
+    assert.equal(JSON.stringify(appliedBad).includes('Fixture private'), false);
+    assert.equal(stagingRequests, 0);
+    assert.equal(commits, 0);
+  }
+  await writeFile(file, JSON.stringify(draft));
+
   const preparedCli = JSON.parse((await execute(process.execPath, [cli, 'prepare', 'pid', file], { env })).stdout);
   assert.equal(preparedCli.ok, true);
-  assert.equal(preparedCli.language_compatibility.observation_status, 'first_observation');
+  assert.equal(preparedCli.language_compatibility.observation_status, 'unchanged');
   assert.equal(preparedCli.language_compatibility.compatibility_verified, false);
   const appliedCli = await execute(process.execPath, [cli, 'apply', 'pid', file, '--expected-hash', preparedCli.expected_remote_hash, '--expected-body-hash', preparedCli.proposed_body_hash, '--expected-proposed-hash', preparedCli.proposed_hash, '--confirm-apply', '--debug'], { env });
   const savedCli = JSON.parse(appliedCli.stdout);

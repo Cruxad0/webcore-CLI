@@ -2,16 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { hashJson, PISTON_BODY_FINGERPRINT_VERSION, pistonBodyFingerprint, prepareUpdate } from '../server/piston.js';
 
+const constant = (vt, c, type = vt) => ({ t: 'c', vt, c, exp: { t: 'expression', i: [{ t: type, v: c }] } });
 const action = (command = 'on') => ({ t: 'action', d: ['lamp'], tcp: 'c',
-  k: [{ c: command, p: [{ t: 'c', vt: 'integer', c: 10 }] }], z: 'Action comment' });
+  k: [{ c: command, p: [constant('integer', 10)] }], z: 'Action comment' });
 const condition = () => ({ t: 'condition', co: 'stays',
   lo: { t: 'p', d: ['sensor'], a: 'motion', g: 'any' },
-  ro: { t: 'c', vt: 'string', c: 'active' }, ro2: { t: 'c', vt: 'integer', c: 2 },
-  to: { t: 'c', vt: 'm', c: 5 }, to2: { t: 'c', vt: 'm', c: 10 },
-  sm: 'auto', wt: 'l', wd: { t: 'c', vt: 's', c: 1 },
+  ro: constant('string', 'active'), ro2: constant('integer', 2),
+  to: constant('m', 5, 'integer'), to2: constant('m', 10, 'integer'),
+  sm: 'auto', wt: 'l', wd: constant('s', 1, 'integer'),
   ts: [action()], fs: [action('off')], z: 'Condition comment' });
 const restriction = () => ({ t: 'restriction', co: 'is',
-  lo: { t: 'x', x: 'enabled' }, ro: { t: 'c', vt: 'boolean', c: true } });
+  lo: { t: 'x', x: 'enabled' }, ro: constant('boolean', true) });
 const literal = () => ({ t: 'condition', s: ['literal statement value'], ct: 't', w: ['literal warning value'],
   c: [{ t: 'condition', s: false, ct: 'c', w: ['nested literal'] }] });
 const body = () => ({ o: { cto: 0 }, r: [{ t: 'group', rop: 'and', r: [restriction()] }], rn: false, rop: 'and',
@@ -21,11 +22,11 @@ const body = () => ({ o: { cto: 0 }, r: [{ t: 'group', rop: 'and', r: [restricti
       r: [restriction()], z: 'If comment' },
     { t: 'on', c: [{ t: 'event', lo: { t: 'p', d: ['sensor'], a: 'motion', g: 'any' } }], s: [action()] },
     { t: 'switch', lo: { t: 'x', x: 'mode' }, cs: [
-      { t: 's', ro: { t: 'c', vt: 'string', c: 'home' }, s: [{ t: 'if', c: [condition()], s: [action()] }] },
-      { t: 'r', ro: { t: 'c', vt: 'integer', c: 1 }, ro2: { t: 'c', vt: 'integer', c: 3 }, s: [action()] }
+      { t: 's', ro: constant('string', 'home'), s: [{ t: 'if', c: [condition()], s: [action()] }] },
+      { t: 'r', ro: constant('integer', 1), ro2: constant('integer', 3), s: [action()] }
     ], e: [action('off')] }
   ],
-  v: [{ n: 'enabled', t: 'boolean', v: { t: 'c', vt: 'boolean', c: true } }], z: 'Piston comment' });
+  v: [{ n: 'enabled', t: 'boolean', v: constant('boolean', true) }], z: 'Piston comment' });
 const fingerprintHash = value => hashJson(pistonBodyFingerprint(value));
 
 test('fingerprint scheme is explicit and preparing keeps the original upload body intact', () => {
