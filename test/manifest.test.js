@@ -7,7 +7,7 @@ test('portable plugin and stdio MCP manifests parse and point inside the package
   const mcp = JSON.parse(await readFile(new URL('../mcp.json', import.meta.url), 'utf8'));
   const compatibility = JSON.parse(await readFile(new URL('../.codex-plugin/plugin.json', import.meta.url), 'utf8'));
   assert.equal(plugin.name, 'webcore-cli');
-  assert.equal(plugin.version, '0.4.5');
+  assert.equal(plugin.version, '0.4.6');
   assert.equal(plugin.extensions['com.openai'].interface.displayName, 'webCoRE CLI');
   assert.ok(plugin.extensions['com.openai'].interface.shortDescription.length <= 30);
   assert.equal(compatibility.name, plugin.name);

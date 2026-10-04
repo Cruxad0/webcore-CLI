@@ -2,7 +2,7 @@
 import { createInterface } from 'node:readline';
 import { loadConfig } from './config.js';
 import { WebcoreClient } from './client.js';
-import { prepareUpdate } from './piston.js';
+import { hashJson, prepareUpdate } from './piston.js';
 import { runDiagnostics } from './diagnostics.js';
 import { getVerifiedPiston, PistonSelectionStore } from './selection.js';
 import { applyPistonUpdate } from './update.js';
@@ -10,10 +10,12 @@ import { verifyPistonUpdate } from './verification.js';
 import packageInfo from '../package.json' with { type: 'json' };
 
 const selections = new PistonSelectionStore();
+let currentClient;
+let currentConfigHash;
 
 const tools = [
-  { name: 'webcore_status', description: 'Check the configured local or explicitly approved Hubitat Cloud connection. Report live webcore_version (coreVersion) and webcore_he_version (heVersion), separately from plugin_version. Call before drafting conditions; do not infer the live webCoRE version from the bundled reference or a screenshot.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
-  { name: 'webcore_diagnose', description: 'Run read-only connection, dashboard response, piston-list, and authorized-device checks. Reports the running plugin_version and upload limits so installed/local version mismatches can be identified. Call after a tool error, unexpected empty result, or mismatch with the CLI. It retries empty piston results and returns sanitized status/content-type/error details without endpoint URLs, access tokens, session tokens, piston names, or device IDs. Upload failures also carry request_trace in their error details; do not perform a write just to diagnose it.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
+  { name: 'webcore_status', description: 'Check the configured local or explicitly approved Hubitat Cloud connection. Report live webcore_version (coreVersion) and webcore_he_version (heVersion), separately from plugin_version. Call before drafting conditions; do not infer the live webCoRE version from the bundled reference or a screenshot. Uses a dedicated dashboard session; snapshot_source distinguishes a new hub snapshot from a fresh unchanged confirmation. HTTP 200 alone is insufficient.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
+  { name: 'webcore_diagnose', description: 'Run read-only connection, dashboard response, piston-list, and authorized-device checks. Reports the running plugin_version and upload limits so installed/local version mismatches can be identified. Call after a tool error, unexpected empty result, or mismatch with the CLI. It retries empty piston results and returns sanitized status/content-type/error details without endpoint URLs, access tokens, session tokens, piston names, or device IDs. Upload failures also carry request_trace in their error details; do not perform a write just to diagnose it. Uses the shared dashboard change-detection protocol. transport_ok describes HTTP/parsing only; dashboard ok requires a usable session snapshot. Inspect snapshot_source and load_attempts. Missing/malformed/duplicate piston records are errors, never zero counts.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
   { name: 'webcore_list_devices', description: 'List devices selected and authorized in this webCoRE instance, with capabilities, attributes, current values, commands and argument constraints.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
   { name: 'webcore_get_device', description: 'Get one authorized device by exact webCoRE device ID or exact name.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' } }, additionalProperties: false } },
   { name: 'webcore_list_pistons', description: 'Fetch the current piston list. Call this tool whenever the user asks for a new list or count. Returns an immutable list_id, scope, numbered entries, display_list, and piston_count. Display its exact numbers and order; do not filter, sort, or renumber them yourself. Use scope=active when asked for active pistons. For a follow-up such as select 7, use webcore_select_piston with the ORIGINAL list_id, number and name; do not refresh the list first. If piston_count is 0, verify connection status and call this tool once more. Report zero only for an explicit empty list.', inputSchema: { type: 'object', properties: { scope: { type: 'string', enum: ['all', 'active', 'paused'], description: 'Server-side list filter. Defaults to all.' } }, additionalProperties: false } },
@@ -33,9 +35,14 @@ const tools = [
 async function invoke(name, a) {
   const config = await loadConfig();
   if (!config) throw new Error('Not configured. First ask whether webCoRE runs on Hubitat and where the local hub is. Find the local execute endpoint at Hubitat > Apps > webCoRE > choose any piston > Test run piston. Prefer local access; only offer the Hubitat Cloud URL as a fallback after explaining it is not local and getting explicit confirmation. Then run `node server/cli.js setup` from the plugin folder.');
-  const c = new WebcoreClient(config);
+  const configHash = hashJson(config);
+  if (!currentClient || configHash !== currentConfigHash) {
+    currentClient = new WebcoreClient(config);
+    currentConfigHash = configHash;
+  }
+  const c = currentClient;
   switch (name) {
-    case 'webcore_status': { const r = await c.request('/intf/dashboard/load'); return { connected: true, plugin_version: packageInfo.version, connection_mode: c.config.connectionMode ?? 'local', hub: r.instance?.name ?? null, version: r.instance?.heVersion ?? r.instance?.coreVersion ?? null, webcore_version: r.instance?.coreVersion ?? null, webcore_he_version: r.instance?.heVersion ?? null }; }
+    case 'webcore_status': { const r = await c.getDashboard(); return { connected: true, dashboard_confirmed: true, snapshot_source: c.lastDashboardInfo.snapshot_source, plugin_version: packageInfo.version, connection_mode: c.config.connectionMode ?? 'local', hub: r.instance?.name ?? null, version: r.instance?.heVersion ?? r.instance?.coreVersion ?? null, webcore_version: r.instance?.coreVersion ?? null, webcore_he_version: r.instance?.heVersion ?? null }; }
     case 'webcore_diagnose': return runDiagnostics(c);
     case 'webcore_list_devices': return { devices: await c.listDevices() };
     case 'webcore_get_device': {

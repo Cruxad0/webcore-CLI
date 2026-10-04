@@ -90,8 +90,8 @@ try {
   } else if (cmd === 'logout') {
     await removeConfig(); print({ ok: true, loggedOut: true });
   } else if (cmd === 'status') {
-    const c = await client(); const result = await c.request('/intf/dashboard/load');
-    print({ ok: true, connected: true, plugin_version: packageInfo.version, connection_mode: c.config.connectionMode ?? 'local', hub: result.instance?.name ?? null, version: result.instance?.heVersion ?? result.instance?.coreVersion ?? null, webcore_version: result.instance?.coreVersion ?? null, webcore_he_version: result.instance?.heVersion ?? null });
+    const c = await client(); const result = await c.getDashboard();
+    print({ ok: true, connected: true, dashboard_confirmed: true, snapshot_source: c.lastDashboardInfo.snapshot_source, plugin_version: packageInfo.version, connection_mode: c.config.connectionMode ?? 'local', hub: result.instance?.name ?? null, version: result.instance?.heVersion ?? result.instance?.coreVersion ?? null, webcore_version: result.instance?.coreVersion ?? null, webcore_he_version: result.instance?.heVersion ?? null });
   } else if (cmd === 'diagnose') {
     const c = await client(); print(await runDiagnostics(c));
   } else if (cmd === 'language') {

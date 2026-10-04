@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { isLanguageDb, languageConditionReference, observeLanguage } from './language.js';
 
 export const UPLOAD_URL_BYTE_LIMIT = 2048;
@@ -8,6 +8,11 @@ const uploadSessions = new Set();
 
 export class WebcoreError extends Error {
   constructor(message, code = 'WEBCORE_ERROR') { super(message); this.name = 'WebcoreError'; this.code = code; }
+}
+
+function withResponseInfo(error, info) {
+  Object.defineProperty(error, 'responseInfo', { value: { ...info } });
+  return error;
 }
 
 export function parseEndpoint(input) {
@@ -36,19 +41,24 @@ export function parseWebcoreResponse(body) {
 
 export function pistonListDetails(data) {
   const candidates = [data?.instance?.pistons, data?.pistons, data?.pistonList, data?.piston];
-  const index = candidates.findIndex(value =>
-    Array.isArray(value) || (value !== null && typeof value === 'object')
-  );
+  const index = candidates.findIndex(value => value !== undefined);
   if (index < 0) {
     throw new WebcoreError('webCoRE response did not include a recognized piston list.', 'PISTON_LIST_UNAVAILABLE');
   }
   const raw = candidates[index];
   const paths = ['instance.pistons', 'pistons', 'pistonList', 'piston'];
   const path = paths[index];
-  if (Array.isArray(raw)) return { path, pistons: raw };
-  const pistons = Object.entries(raw)
-    .filter(([, piston]) => piston !== null && typeof piston === 'object' && !Array.isArray(piston))
-    .map(([key, piston]) => ({ ...piston, id: piston.id ?? piston.i ?? key }));
+  if (raw === null || typeof raw !== 'object') throw new WebcoreError('The declared piston list is not an array or keyed collection; no count can be verified.', 'PISTON_LIST_MALFORMED');
+  if (path === 'piston' && !Array.isArray(raw) && !Object.keys(raw).length) throw new WebcoreError('An empty singular piston object is not a verified piston list.', 'PISTON_LIST_MALFORMED');
+  const rows = Array.isArray(raw) ? raw.map(piston => [null, piston]) : Object.entries(raw);
+  const pistons = rows.map(([key, piston]) => {
+    if (!piston || typeof piston !== 'object' || Array.isArray(piston)) throw new WebcoreError('The piston list contains malformed records; no count can be verified.', 'PISTON_LIST_MALFORMED');
+    const id = piston.id ?? piston.i ?? piston.meta?.id ?? key;
+    const name = piston.name ?? piston.n ?? piston.meta?.name;
+    if (typeof id !== 'string' || !id.trim() || typeof name !== 'string' || !name.trim()) throw new WebcoreError('The piston list contains a record without an exact ID or name; no count can be verified.', 'PISTON_LIST_MALFORMED');
+    return key === null ? piston : { ...piston, id };
+  });
+  if (new Set(pistons.map(piston => piston.id ?? piston.i ?? piston.meta?.id)).size !== pistons.length) throw new WebcoreError('The piston list contains duplicate IDs; no count can be verified.', 'PISTON_LIST_MALFORMED');
   return { path, pistons };
 }
 
@@ -64,6 +74,13 @@ export class WebcoreClient {
     this.accessToken = config.accessToken;
     this.securityToken = config.securityToken;
     this.debug = config.debug;
+    // Isolate HE's dashboard change-detection cache from browsers, CLI processes
+    // and other agents. Reuse two session slots, rather than one UUID per request.
+    this.dashboardSession = `webcore-cli-${randomUUID()}`;
+    this.dashboardSlot = 0;
+    this.dashboardSnapshot = null;
+    this.dashboardQueue = Promise.resolve();
+    this.responseInfo = new WeakMap();
   }
   requestUrl(path, params = {}, { authenticated = true } = {}) {
     const url = new URL(`${this.base}${path}`);
@@ -79,44 +96,96 @@ export class WebcoreClient {
     const url = this.requestUrl(path, params, options);
     this.lastResponseInfo = null;
     let response;
+    let info = { path, status: null, contentType: null, redirected: null, parsed: false };
     this.debug?.(`request path=${path}; query values omitted`);
     try { response = await this.fetch(url, { signal: AbortSignal.timeout(15000) }); }
     catch (error) {
       const code = typeof error?.cause?.code === 'string' && /^[A-Z0-9_]+$/.test(error.cause.code) ? error.cause.code : 'REQUEST_FAILED';
       this.debug?.(`network request failed; code=${code}`);
-      throw new WebcoreError(`Hubitat network request failed (${code}). Check that the hub is reachable and the endpoint is correct.`, 'NETWORK_ERROR');
+      throw withResponseInfo(new WebcoreError(`Hubitat network request failed (${code}). Check that the hub is reachable and the endpoint is correct.`, 'NETWORK_ERROR'), info);
     }
     const rawContentType = response.headers?.get('content-type') ?? '';
     const contentType = /^[\w.+-]+\/[\w.+-]+(?:\s*;\s*[\w=.+-]+)*$/.test(rawContentType) ? rawContentType : (rawContentType ? 'other/unknown' : 'not provided');
-    this.lastResponseInfo = {
+    info = {
       path,
       status: response.status,
       contentType: contentType.split(';', 1)[0],
       redirected: Boolean(response.redirected),
       parsed: false
     };
+    this.lastResponseInfo = info;
     this.debug?.(`response status=${response.status}; content-type=${contentType}; redirected=${Boolean(response.redirected)}`);
-    const body = await response.text();
+    let body;
+    try { body = await response.text(); }
+    catch { throw withResponseInfo(new WebcoreError('Hubitat response could not be read completely. Response values are omitted.', 'NETWORK_ERROR'), info); }
     if (!response.ok) {
       const error = new WebcoreError(`Hubitat returned HTTP ${response.status}.`, 'HTTP_ERROR');
       error.httpStatus = response.status;
-      throw error;
+      throw withResponseInfo(error, info);
     }
     let data;
     try { data = parseWebcoreResponse(body); } catch {
       const redirectNote = response.redirected ? ' after a redirect' : '';
-      throw new WebcoreError(`Hubitat returned a non-JSON response${redirectNote} (HTTP ${response.status}, ${contentType}). Check the local endpoint and whether Hubitat or a proxy is returning a login page.`, 'RESPONSE_ERROR');
+      throw withResponseInfo(new WebcoreError(`Hubitat returned a non-JSON response${redirectNote} (HTTP ${response.status}, ${contentType}). Check the local endpoint and whether Hubitat or a proxy is returning a login page.`, 'RESPONSE_ERROR'), info);
     }
-    this.lastResponseInfo = {
-      ...this.lastResponseInfo,
+    info = {
+      ...info,
       parsed: true,
       responseType: Array.isArray(data) ? 'array' : data === null ? 'null' : typeof data
     };
-    if (data?.error === 'ERR_INVALID_TOKEN' || data?.error === 'ERR_INVALID_ID') throw new WebcoreError(`webCoRE rejected the request (${data.error}). Re-authenticate and check the piston ID.`, data.error);
-    if (data?.status === 'ST_ERROR') throw new WebcoreError(`webCoRE operation failed (${data.error ?? 'unspecified error'}).`, 'WEBCORE_ERROR');
+    this.lastResponseInfo = info;
+    if (data !== null && typeof data === 'object') this.responseInfo.set(data, info);
+    if (data?.error === 'ERR_INVALID_TOKEN' || data?.error === 'ERR_INVALID_ID') throw withResponseInfo(new WebcoreError(`webCoRE rejected the request (${data.error}). Re-authenticate and check the piston ID.`, data.error), info);
+    if (data?.status === 'ST_ERROR') throw withResponseInfo(new WebcoreError('webCoRE operation failed. Check the local Hubitat logs; response values are omitted.', 'WEBCORE_ERROR'), info);
     return data;
   }
+  getDashboard() {
+    const operation = this.dashboardQueue.catch(() => {}).then(() => this.loadDashboardSnapshot());
+    this.dashboardQueue = operation.then(() => undefined, () => undefined);
+    return operation;
+  }
+  async loadDashboardSnapshot() {
+    const attempts = [];
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      let data;
+      try { data = await this.request('/intf/dashboard/load', { session: `${this.dashboardSession}-${this.dashboardSlot}` }); }
+      catch (error) {
+        attempts.push({ attempt, response_kind: 'failed', code: ['NETWORK_ERROR', 'HTTP_ERROR', 'RESPONSE_ERROR', 'ERR_INVALID_TOKEN', 'ERR_INVALID_ID', 'WEBCORE_ERROR'].includes(error.code) ? error.code : 'REQUEST_FAILED' });
+        this.dashboardSnapshot = null;
+        this.dashboardSlot = 1 - this.dashboardSlot;
+        this.lastDashboardInfo = { ...error.responseInfo, attempts, snapshot_source: null };
+        throw error;
+      }
+      const info = this.responseInfo.get(data) ?? this.lastResponseInfo;
+      const object = data !== null && typeof data === 'object' && !Array.isArray(data);
+      const unchanged = object && Object.keys(data).length === 1 && Number.isSafeInteger(data.now) && data.now > 0;
+      const instance = object && data.instance !== null && typeof data.instance === 'object' && !Array.isArray(data.instance) ? data.instance : null;
+      const full = instance && ['pistons', 'id', 'name', 'coreVersion', 'heVersion'].some(key => Object.hasOwn(instance, key));
+      attempts.push({ attempt, response_kind: full ? 'snapshot' : unchanged ? 'unchanged' : 'invalid' });
+      if (full) {
+        this.dashboardSnapshot = structuredClone(data);
+        this.lastDashboardInfo = { ...info, attempts, snapshot_source: 'hub_snapshot' };
+        return structuredClone(data);
+      }
+      if (unchanged && this.dashboardSnapshot) {
+        this.lastDashboardInfo = { ...info, attempts, snapshot_source: 'hub_confirmed_unchanged' };
+        // HE recomputes the full snapshot hash before issuing its now-only reply.
+        // This is a fresh confirmation, never an offline/stale fallback.
+        return { ...structuredClone(this.dashboardSnapshot), now: data.now };
+      }
+      this.dashboardSnapshot = null;
+      this.dashboardSlot = 1 - this.dashboardSlot;
+      this.lastDashboardInfo = { ...info, attempts, snapshot_source: null };
+      if (unchanged && attempt === 1) continue;
+      const error = new WebcoreError(unchanged
+        ? 'webCoRE returned an unchanged dashboard marker without a matching session snapshot. No piston count or versions can be verified.'
+        : 'webCoRE returned a parsed response without a recognized dashboard instance. HTTP success does not verify dashboard access.', unchanged ? 'DASHBOARD_SNAPSHOT_UNAVAILABLE' : 'DASHBOARD_RESPONSE_INVALID');
+      error.details = { response_kind: unchanged ? 'unchanged_without_snapshot' : 'invalid', attempts, retry_safe: true, credentials_included: false };
+      throw error;
+    }
+  }
   async authenticate(pin) {
+    this.dashboardSnapshot = null;
     const data = await this.request('/intf/dashboard/load', { pin: hashPin(pin) }, { authenticated: false });
     const token = data?.instance?.token;
     if (!token) throw new WebcoreError('PIN was not accepted or webCoRE did not return a session token.', 'AUTH_ERROR');
@@ -143,13 +212,13 @@ export class WebcoreClient {
   }
   async refreshStates() { return this.request('/intf/dashboard/refresh'); }
   async listPistons() {
-    const data = await this.request('/intf/dashboard/load');
+    const data = await this.getDashboard();
     return normalizePistonList(data);
   }
   getPiston(id) { return this.request('/intf/dashboard/piston/get', { id, db: '' }); }
   async getLanguageDb() {
     const [language, dashboard] = await Promise.allSettled([
-      this.request('/intf/dashboard/piston/getDb'), this.request('/intf/dashboard/load')
+      this.request('/intf/dashboard/piston/getDb'), this.getDashboard()
     ]);
     if (language.status === 'rejected') throw language.reason;
     if (!isLanguageDb(language.value)) throw new WebcoreError('webCoRE did not return a nonempty language database. Definitions and compatibility could not be checked.', 'LANGUAGE_DB_UNAVAILABLE');
